@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-# A simple chat server/client
+# A simple server/client chat program
 
 import socket, argparse, threading, curses
 
