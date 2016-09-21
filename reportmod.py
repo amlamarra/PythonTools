@@ -3,8 +3,8 @@
 # Author:		Andrew M. Lamarra
 # Modified:		4/6/2016
 # Purpose:		This script will open a file called data.csv and modify
-#				the contents to create the necessary metrics report and
-#				save it to data-modified.csv.
+#			the contents to create the necessary metrics report and
+#			save it to data-modified.csv.
 ################################################################################
 
 import os, csv
