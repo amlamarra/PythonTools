@@ -19,7 +19,7 @@ lines = []
 def output(stdscr, msg):
 	Y, X = stdscr.getyx()
 	max_lines = stdscr.getmaxyx()[0] - 3
-	
+
 	# Scrolling (if necessary)
 	if len(lines) > max_lines:
 		del lines[0]
@@ -31,6 +31,16 @@ def output(stdscr, msg):
 	lines.append(msg)
 	stdscr.move(Y, X)	# Move the cursor back to the start position
 	stdscr.refresh()
+
+# Displays the help listing
+def help(stdscr):
+	output(stdscr, "------------------------------------------------------------")
+	output(stdscr, "List of commands:")
+	output(stdscr, "\t/JOIN #<channel name> | Join a channel")
+	output(stdscr, "\t/NICK <new nick> | Changes your nick")
+	output(stdscr, "\t/PART [<part message>] | Leaves the current channel")
+	output(stdscr, "\t/QUIT | Closes the connection & exits the program")
+	output(stdscr, "------------------------------------------------------------")
 
 # Listens for messages from the server
 def listen(stdscr):
@@ -46,11 +56,12 @@ def listen(stdscr):
 				output(stdscr, pong)
 
 def user_input(stdscr):
+	global NICK
 	send = True
 	inchannel = False
 	channel = ""
 	Ymax, Xmax = stdscr.getmaxyx()
-	
+
 	while True:
 		stdscr.move(Ymax-1, 0)
 		stdscr.clrtoeol()
@@ -58,11 +69,11 @@ def user_input(stdscr):
 		Y, X = stdscr.getyx()
 		eol = X
 		txt = []
-		
+
 		while True:
 			y, x = stdscr.getyx()
 			c = stdscr.getch()
-			
+
 			if c == 10: # Pressing Enter (\r)
 				break
 			elif c == curses.KEY_BACKSPACE:
@@ -98,18 +109,24 @@ def user_input(stdscr):
 					txt.append(chr(c))
 					stdscr.addch(c)
 				stdscr.move(y, (x+1))
-		
-		msg = "".join(txt)
-		output(stdscr, "{} > {}".format(NICK, msg))
-		
-		if msg and msg[0] == "/" and len(msg) > 1:
+
+		message = "".join(txt)
+		output(stdscr, "{} > {}".format(NICK, message))
+
+		if message and message[0] == "/" and len(message) > 1:
 			param = ""
-			msg = msg[1:]
+			text = ""
+			msg = message[1:]
 			params = len(msg.split(" ")) - 1
+
+			if len(msg.split(":")) > 1:
+				text = " :" + msg.split(":")[1]
+
 			if params > 0:
 				param = msg.split(" ")[1]
+
 			command = msg.split(" ")[0].upper()
-			
+
 			if command == "JOIN" and params > 0:
 				if param[0] == "#":
 					channel = param
@@ -119,12 +136,16 @@ def user_input(stdscr):
 					send = False
 					output(stdscr, "Improper channel name")
 			elif command == "NICK" and params > 0:
-				msg = "NICK {}".format(msg.split(" ")[1])
+				msg = "NICK {}".format(param)
+				NICK = param
 			elif command == "PART" and inchannel == True:
-				msg = "PART {}".format(channel)
+				msg = "PART {}{}".format(channel, text)
 				inchannel = False
 			elif command == "NAMES":
 				msg = "NAMES {}".format(param)
+			elif command == "HELP":
+				help(stdscr)
+				send = False
 			elif command == "QUIT":
 				sockets[0].sendall("QUIT\r\n".encode(UTF))
 				break
@@ -138,22 +159,22 @@ def user_input(stdscr):
 			else:
 				send = False
 				output(stdscr, "Invalid command or parameter...")
-				
-		elif msg and msg[0] == "/" and len(msg) == 1:
+
+		elif message and message[0] == "/" and len(message) == 1:
 			send = False
 			output(stdscr, "Invalid command")
-		elif msg and inchannel == True:
-			msg = "PRIVMSG {} :{}".format(channel, msg)
-		elif msg and inchannel == False:
+		elif message and inchannel == True:
+			msg = "PRIVMSG {} :{}".format(channel, message)
+		elif message and inchannel == False:
 			output(stdscr, "You need to be in a channel to send a message")
 			send = False
-			
-		if send == True and msg:
+
+		if send == True and message:
 			msg += "\r\n"
 			sockets[0].sendall(msg.encode(UTF))
-			
+
 		send = True	# Reset the send flag
-	
+
 def main(stdscr):
 	try:
 		sock = socket.create_connection(SRV_ADDR)
@@ -165,9 +186,9 @@ def main(stdscr):
 	t = threading.Thread(target=listen,args=(stdscr,))
 	t.daemon = True
 	t.start()
-	
+
 	user_input(stdscr)
-	
+
 	sockets[0].shutdown(socket.SHUT_RDWR)
 	sockets[0].close()
 	stdscr.erase()
