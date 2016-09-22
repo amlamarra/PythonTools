@@ -152,7 +152,7 @@ def user_input(stdscr):
 			elif command == "PRIVMSG" and params > 0:
 				msg = msg.split(" ")
 				text = msg[2:]
-				" ".join(text)
+				text = " ".join(text)
 				if text[0] == ":":
 					text = text[1:]
 				msg = "PRIVMSG {} :{}".format(param, text)
