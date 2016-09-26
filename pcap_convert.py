@@ -4,10 +4,10 @@
 # Author:	Andrew M. Lamarra
 # Modified:	9/26/2016
 # Purpose:	PaloAlto provides the packets of the threats it detects in text form
-#			The user will copy that text, save it to the same directory as this
-#			script, and run it. The output will strip the packet headers and
-#			show only the ASCII values of the packet data. This will make it
-#			more readable and easier to find (ctrl+F) content.
+#		The user will copy that text, save it to the same directory as this
+#		script, and run it. The output will strip the packet headers and
+#		show only the ASCII values of the packet data. This will make it
+#		more readable and easier to find (ctrl+F) content.
 ################################################################################
 
 # Read in the data
