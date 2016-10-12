@@ -5,6 +5,7 @@
 # Purpose:		This script will open a file called data.csv and modify
 #			the contents to create the necessary metrics report and
 #			save it to data-modified.csv.
+#			This is for metrics reporting.
 ################################################################################
 
 import os, csv
