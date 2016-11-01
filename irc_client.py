@@ -12,19 +12,10 @@ class ServerInfo():
 		self.ip = ip
 		self.port = port
 		self.addr = (ip, port)
+		self.nick = ""
+		self.username = ""
+		self.realname = ""
 
-class UserInfo():
-	def __init__(self, nick, uname, rname):
-		self.nick = nick
-		self.username = uname
-		self.realname = rname
-		
-# Use a class for these & save to a file
-NICK = "" # Enter nick
-USERNAME = "" # Enter username
-REALNAME = "" # Enter real name
-
-#PRINTABLE = list(map(ord, printable))
 PRINTABLE = [ord(x) for x in printable]
 
 sockets = []
@@ -52,13 +43,18 @@ def output(stdscr, msg):
 def help(stdscr):
 	output(stdscr, "------------------------------------------------------------")
 	output(stdscr, "List of commands (not case sensitive):")
-	output(stdscr, "\t/SERVER (save|delete|list) [<name> <ip> <port>]")
-	output(stdscr, "\t\tName, IP, and port are required if the save option is used")
+	output(stdscr, "\t/SERVER (add|delete|list) [<name> <ip> <port>]")
+	output(stdscr, "\t\tName, IP, and port are required if the add option is used")
 	output(stdscr, "\t\tName is required if the delete option is used")
+	output(stdscr, "\t/SET <server name>.(nick|username|realname) <value>")
+	output(stdscr, "\t\tYou must have a nick and username set before connecting")
+	output(stdscr, "\t\tExample: /set freenode.nick testuser")
 	output(stdscr, "\t/CONNECT <name> | Connect to the saved server")
 	output(stdscr, "\t/DISCONNECT | Disconnect from the current server")
 	output(stdscr, "\t/JOIN #<channel name> | Join a channel")
 	output(stdscr, "\t/NICK <new nick> | Changes your nick")
+	output(stdscr, "\t\tNote: In order to change your username, you'll need to log out,"
+	               " use the /SET command, and log back in")
 	output(stdscr, "\t/NAMES [#<channel name>]")
 	output(stdscr, "\t\tList all visible channels & users if no arguments are given")
 	output(stdscr, "\t\tIf channel name is given, list all visible names in that channel")
@@ -94,24 +90,160 @@ def listen(stdscr):
 					sockets[0].sendall(pong.encode())
 					output(stdscr, pong)
 
-def connect(stdscr, srv_addr):
+# Connects to the server
+def connect(stdscr, srv_name):
 	sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-	sock.settimeout(5)
+	sock.settimeout(10)
 	try:
-		sock.connect(srv_addr)
+		sock.connect(servers[srv_name].addr)
 	except socket.error as exc:
 		output(stdscr, "Connection error: {}".format(exc))
 		return False
-	
+	sock.settimeout(None)
 	sockets.append(sock)
-	sockets[0].sendall("NICK {}\r\n".format(NICK).encode())
-	sockets[0].sendall("USER {} 0 * :{}\r\n".format(USERNAME, REALNAME).encode())
+	sockets[0].sendall("NICK {}\r\n".format(servers[srv_name].nick).encode())
+	sockets[0].sendall("USER {} 0 * :{}\r\n".format(servers[srv_name].username,
+	                   servers[srv_name].realname).encode())
 	t = threading.Thread(target=listen,args=(stdscr,))
 	t.daemon = True
 	t.start()
 	
 	return True
 
+# Handles commands specified by the user
+def commands(stdscr, message, connected, inchannel):
+	param = ""
+	text = ""
+	msg = message[1:]
+	params = len(msg.split(" ")) - 1
+
+	if len(msg.split(":")) > 1:
+		text = " :" + msg.split(":")[1]
+
+	if params > 0:
+		param = msg.split(" ")[1]
+
+	command = msg.split(" ")[0].upper()
+
+	if command == "SERVER" and params:
+		if param.lower() == "list":
+			for server in servers:
+				output(stdscr, "Server Name: {}  |  Address: {}"
+					   .format(server, servers[server].addr))
+				output(stdscr, "       Nick: {}".format(servers[server].nick))
+				output(stdscr, "   Username: {}".format(servers[server].username))
+				output(stdscr, "   Realname: {}".format(servers[server].realname))
+		elif param.lower() == "add" and params > 3:
+			name = msg.split(" ")[2]
+			ip = msg.split(" ")[3]
+			port = int(msg.split(" ")[4])
+			server = ServerInfo(name, ip, port)
+			servers[name] = server
+			with open("servers.db", "wb") as f: # Save to file
+				pickle.dump(servers, f)
+		elif param.lower() == "add" and params < 4:
+			output(stdscr, "Adding a server requires 3 parameters:")
+			output(stdscr, "\t/SERVER add <server name> <ip> <port>")
+		elif param.lower() == "delete" and params > 1:
+			name = msg.split(" ")[2]
+			if name in servers:
+				del servers[name]
+				with open("servers.db", "wb") as f:
+					pickle.dump(servers, f)
+				output(stdscr, "Server '{}' has been deleted.".format(name))
+			else:
+				output(stdscr, "Server name does not exist.")
+		elif param.lower() == "delete" and params < 2:
+			output(stdscr, "Specify the server name to delete it.")
+
+	elif command == "SET":
+		if params < 2 or "." not in msg.split(" ")[1]:
+			output(stdscr, "Command usage: /SET <server name>."
+			               "(nick|username|realname) <value>")
+		else:
+			name = msg.split(" ")[1].split(".")[0].lower()
+			if name not in servers:
+				output(stdscr, "You must specify one of your saved servers")
+				output(stdscr, "Use '/SERVER list' to see all saved servers")
+			attr = msg.split(" ")[1].split(".")[1].lower()
+			value = msg.split(" ")[2]
+			if attr == "nick" or attr == "username" or attr == "realname":
+				setattr(servers[name], attr, value)
+			else:
+				output(stdscr, "You must specify one of the following attributes:"
+				               " (nick|username|realname)")
+			 
+	elif command == "CONNECT":
+		if params and param in servers and not connected:
+			if servers[param].nick and servers[param].username:
+				connected = connect(stdscr, param)
+				if not connected:
+					output(stdscr, "Unable to connect to the server")
+			else:
+				output(stdscr, "You must specify a nick and a username")
+		elif param not in servers and not connected:
+			output(stdscr, "Must specify the name of a saved server")
+		elif connected:
+			output(stdscr, "You must first disconnect"
+						   " from the current server.")
+
+	elif command == "JOIN" and params:
+		if connected and param[0] == "#":
+			channel = param
+			msg = "JOIN {}".format(channel)
+			inchannel = True
+			send = True
+		elif connected:
+			output(stdscr, "Improper channel name")
+		else:
+			output(stdscr, "You must be connected to a server.")
+
+	elif command == "NICK" and params:
+		if connected:
+			msg = "NICK {}".format(param)
+			send = True
+		NICK = param
+
+	elif command == "PART":
+		if connected and inchannel:
+			msg = "PART {}{}".format(channel, text)
+			send = True
+		elif connected and not inchannel:
+			output(stdscr, "You must be in a channel to leave one.")
+		inchannel = False
+
+	elif command == "NAMES":
+		# To do: Allow user to specify multiple channels
+		if connected and not params:
+			msg = "NAMES"
+			send = True
+		elif connected and params and param[0] == "#":
+			msg = "NAMES {}".format(param)
+			send = True
+		elif connected and params and param[0] != "#":
+			output(stdscr, "Invalid channel name.")
+		else:
+			output(stdscr, "You must first connect to a server.")
+
+	elif command == "HELP":
+		help(stdscr)
+
+	elif command == "QUIT" or command == "EXIT":
+		msg = "QUIT"
+
+	elif command == "PRIVMSG" and params > 1:
+		if connected:
+			msg = "PRIVMSG {}{}".format(param, text)
+			send = True
+		else:
+			output(stdscr, "You must first connect to a server.")
+			
+	else:
+		output(stdscr, "Invalid command or parameter...")
+	
+	return msg, connected, inchannel
+
+			 
 def user_input(stdscr):
 	global NICK
 	send = False
@@ -172,120 +304,7 @@ def user_input(stdscr):
 		output(stdscr, "{} > {}".format(NICK, message))
 		
 		if message and message[0] == "/" and len(message) > 1:
-			param = ""
-			text = ""
-			msg = message[1:]
-			params = len(msg.split(" ")) - 1
-			
-			if len(msg.split(":")) > 1:
-				text = " :" + msg.split(":")[1]
-				
-			if params > 0:
-				param = msg.split(" ")[1]
-				
-			command = msg.split(" ")[0].upper()
-			
-			if command == "SERVER" and params:
-				if param.lower() == "list":
-					for server in servers:
-						output(stdscr, "Server Name: {}  |  Address: {}"
-							   .format(server, servers[server].addr))
-				elif param.lower() == "save" and params > 3:
-					name = msg.split(" ")[2]
-					ip = msg.split(" ")[3]
-					port = int(msg.split(" ")[4])
-					server = ServerInfo(name, ip, port)
-					servers[name] = server
-					# Now save to file
-					with open("servers.db", "wb") as f:
-						pickle.dump(servers, f)
-				elif param.lower() == "save" and params < 4:
-					output(stdscr, "Saving a server requires 3 parameters:")
-					output(stdscr, "\t/SERVER save <server name> <ip> <port>")
-				elif param.lower() == "delete" and params > 1:
-					name = msg.split(" ")[2]
-					if name in servers:
-						del servers[name]
-						with open("servers.db", "wb") as f:
-							pickle.dump(servers, f)
-						output(stdscr, "Server '{}' has been deleted."
-							   .format(name))
-					else:
-						output(stdscr, "Server name does not exist.")
-				elif param.lower() == "delete" and params < 2:
-					output(stdscr, "Specify the server name to delete it.")
-				
-			elif command == "CONNECT":
-				if params and param in servers and not connected:
-					connected = connect(stdscr, servers[param].addr)
-					if not connected:
-						output(stdscr, "Unable to connect to the server")
-				elif param not in servers and not connected:
-					output(stdscr, "Must specify the name of a saved server")
-				elif connected:
-					output(stdscr, "You must first disconnect"
-					               " from the current server.")
-					
-			elif command == "JOIN" and params:
-				if param[0] == "#" and connected:
-					channel = param
-					msg = "JOIN {}".format(channel)
-					inchannel = True
-					send = True
-				elif connected:
-					output(stdscr, "Improper channel name")
-				else:
-					output(stdscr, "You must be connected to a server.")
-					
-			elif command == "NICK" and params:
-				if connected:
-					msg = "NICK {}".format(param)
-					send = True
-				NICK = param
-				
-			elif command == "PART":
-				if connected and inchannel:
-					msg = "PART {}{}".format(channel, text)
-					send = True
-				elif connected and not inchannel:
-					output(stdscr, "You must be in a channel to leave one.")
-				inchannel = False
-				
-			elif command == "NAMES":
-				# To do: Allow user to specify multiple channels
-				if connected and not params:
-					msg = "NAMES"
-					send = True
-				elif connected and params and param[0] == "#":
-					msg = "NAMES {}".format(param)
-					send = True
-				elif connected and params and param[0] != "#":
-					output(stdscr, "Invalid channel name.")
-				else:
-					output(stdscr, "You must first connect to a server.")
-					
-			elif command == "HELP":
-				help(stdscr)
-				
-			elif command == "QUIT" or command == "EXIT":
-				if sockets:
-					sockets[0].sendall("QUIT\r\n".encode())
-				break
-				
-			elif command == "PRIVMSG" and params > 1:
-				if connected:
-					msg = msg.split(" ")
-					text = msg[2:]
-					text = " ".join(text)
-					if text[0] == ":":
-						text = text[1:]
-					msg = "PRIVMSG {} :{}".format(param, text)
-					send = True
-				else:
-					output(stdscr, "You must first connect to a server.")
-			else:
-				output(stdscr, "Invalid command or parameter...")
-				
+			msg, connected, inchannel = commands(stdscr, message, connected, inchannel)
 		elif message and message[0] == "/" and len(message) == 1:
 			output(stdscr, "Invalid command")
 		elif message and inchannel:
@@ -296,6 +315,8 @@ def user_input(stdscr):
 		if send and message:
 			msg += "\r\n"
 			sockets[0].sendall(msg.encode())
+			if msg == "QUIT\r\n":
+				break
 			
 		send = False # Reset the send flag
 		
