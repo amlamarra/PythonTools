@@ -7,6 +7,8 @@ import os.path
 from string import printable
 
 class ServerInfo():
+	"Used to store server and user info"
+	
 	def __init__(self, name, ip, port):
 		self.name = name
 		self.ip = ip
@@ -15,24 +17,29 @@ class ServerInfo():
 		self.nick = ""
 		self.username = ""
 		self.realname = ""
+		
 
 PRINTABLE = [ord(x) for x in printable]
 
 sockets = []
 servers = {}
 lines = []
+txt = []
 
 # Display whatever string is passed to it
 def output(stdscr, msg):
 	Y, X = stdscr.getyx()
 	max_lines = stdscr.getmaxyx()[0] - 3
-
+	
 	# Scrolling (if necessary)
 	if len(lines) > max_lines:
 		del lines[0]
 		stdscr.clear()
 		for i, line in enumerate(lines):
 			stdscr.addstr(i, 0, line)
+		# Redraw the input line
+		stdscr.addstr(Y, 2, "".join(txt))
+		stdscr.move(Y, X)
 
 	stdscr.addstr(len(lines), 0, msg)
 	lines.append(msg)
@@ -53,8 +60,8 @@ def help(stdscr):
 	output(stdscr, "\t/DISCONNECT | Disconnect from the current server")
 	output(stdscr, "\t/JOIN #<channel name> | Join a channel")
 	output(stdscr, "\t/NICK <new nick> | Changes your nick")
-	output(stdscr, "\t\tNote: In order to change your username, you'll need to log out,"
-	               " use the /SET command, and log back in")
+	output(stdscr, "\t\tNote: In order to change your username, you'll need to log out,")
+	output(stdscr, "\t\tuse the /SET command, and log back in")
 	output(stdscr, "\t/NAMES [#<channel name>]")
 	output(stdscr, "\t\tList all visible channels & users if no arguments are given")
 	output(stdscr, "\t\tIf channel name is given, list all visible names in that channel")
@@ -111,7 +118,7 @@ def connect(stdscr, srv_name):
 	return True
 
 # Handles commands specified by the user
-def commands(stdscr, message, connected, inchannel):
+def commands(stdscr, message, connected, inchannel, send):
 	param = ""
 	text = ""
 	msg = message[1:]
@@ -121,30 +128,33 @@ def commands(stdscr, message, connected, inchannel):
 		text = " :" + msg.split(":")[1]
 
 	if params > 0:
-		param = msg.split(" ")[1]
+		param = msg.split(" ")[1].lower()
 
 	command = msg.split(" ")[0].upper()
 
 	if command == "SERVER" and params:
-		if param.lower() == "list":
+		if param == "list":
 			for server in servers:
 				output(stdscr, "Server Name: {}  |  Address: {}"
 					   .format(server, servers[server].addr))
 				output(stdscr, "       Nick: {}".format(servers[server].nick))
 				output(stdscr, "   Username: {}".format(servers[server].username))
 				output(stdscr, "   Realname: {}".format(servers[server].realname))
-		elif param.lower() == "add" and params > 3:
+		elif param == "add" and params >= 4:
 			name = msg.split(" ")[2]
-			ip = msg.split(" ")[3]
-			port = int(msg.split(" ")[4])
-			server = ServerInfo(name, ip, port)
-			servers[name] = server
-			with open("servers.db", "wb") as f: # Save to file
-				pickle.dump(servers, f)
-		elif param.lower() == "add" and params < 4:
+			if name in servers:
+				output(stdscr, "That server name already exists.")
+			else:
+				ip = msg.split(" ")[3]
+				port = int(msg.split(" ")[4])
+				server = ServerInfo(name, ip, port)
+				servers[name] = server
+				with open("servers.db", "wb") as f: # Save to file
+					pickle.dump(servers, f)
+		elif param == "add" and params < 4:
 			output(stdscr, "Adding a server requires 3 parameters:")
 			output(stdscr, "\t/SERVER add <server name> <ip> <port>")
-		elif param.lower() == "delete" and params > 1:
+		elif param == "delete" and params > 1:
 			name = msg.split(" ")[2]
 			if name in servers:
 				del servers[name]
@@ -153,10 +163,11 @@ def commands(stdscr, message, connected, inchannel):
 				output(stdscr, "Server '{}' has been deleted.".format(name))
 			else:
 				output(stdscr, "Server name does not exist.")
-		elif param.lower() == "delete" and params < 2:
+		elif param == "delete" and params < 2:
 			output(stdscr, "Specify the server name to delete it.")
 
 	elif command == "SET":
+		# I'd really like to clean this place up...
 		if params < 2 or "." not in msg.split(" ")[1]:
 			output(stdscr, "Command usage: /SET <server name>."
 			               "(nick|username|realname) <value>")
@@ -165,27 +176,33 @@ def commands(stdscr, message, connected, inchannel):
 			if name not in servers:
 				output(stdscr, "You must specify one of your saved servers")
 				output(stdscr, "Use '/SERVER list' to see all saved servers")
-			attr = msg.split(" ")[1].split(".")[1].lower()
-			value = msg.split(" ")[2]
-			if attr == "nick" or attr == "username" or attr == "realname":
-				setattr(servers[name], attr, value)
 			else:
-				output(stdscr, "You must specify one of the following attributes:"
-				               " (nick|username|realname)")
+				attr = msg.split(" ")[1].split(".")[1].lower()
+				value = " ".join(msg.split(" ")[2:])
+				if attr == "nick" or attr == "username" or attr == "realname":
+					if attr != "realname":
+						value = value.split(" ")[0]
+					setattr(servers[name], attr, value)
+					with open("servers.db", "wb") as f:
+						pickle.dump(servers, f)
+				else:
+					output(stdscr, "You must specify one of the following attributes:"
+								   " (nick|username|realname)")
 			 
 	elif command == "CONNECT":
 		if params and param in servers and not connected:
-			if servers[param].nick and servers[param].username:
+			if servers[param].nick and servers[param].username and servers[param].realname:
 				connected = connect(stdscr, param)
+				output(stdscr, "Socket info: {}".format(sockets[0].getpeername()))
 				if not connected:
 					output(stdscr, "Unable to connect to the server")
 			else:
-				output(stdscr, "You must specify a nick and a username")
+				output(stdscr, "You must set a nick and username for the server:")
+				output(stdscr, "\t/SET <server name>.(nick|username|realname) <value>")
 		elif param not in servers and not connected:
-			output(stdscr, "Must specify the name of a saved server")
+			output(stdscr, "You must specify the name of a saved server")
 		elif connected:
-			output(stdscr, "You must first disconnect"
-						   " from the current server.")
+			output(stdscr, "You must first disconnect from the current server.")
 
 	elif command == "JOIN" and params:
 		if connected and param[0] == "#":
@@ -230,6 +247,8 @@ def commands(stdscr, message, connected, inchannel):
 
 	elif command == "QUIT" or command == "EXIT":
 		msg = "QUIT"
+		output(stdscr, "You tried to quit, but HAHA, you can't!")
+		send = True
 
 	elif command == "PRIVMSG" and params > 1:
 		if connected:
@@ -241,7 +260,7 @@ def commands(stdscr, message, connected, inchannel):
 	else:
 		output(stdscr, "Invalid command or parameter...")
 	
-	return msg, connected, inchannel
+	return msg, connected, inchannel, send
 
 			 
 def user_input(stdscr):
@@ -255,6 +274,9 @@ def user_input(stdscr):
 	while True:
 		stdscr.move(Ymax-1, 0)
 		stdscr.clrtoeol()
+		# Put the nick before the prompt if connected to a server
+		#if connected:
+		#	sockets[0]
 		stdscr.addstr("> ")
 		Y, X = stdscr.getyx()
 		eol = X
@@ -301,10 +323,13 @@ def user_input(stdscr):
 				stdscr.move(y, (x+1))
 				
 		message = "".join(txt)
-		output(stdscr, "{} > {}".format(NICK, message))
+		output(stdscr, ">>> {}".format(message))
 		
 		if message and message[0] == "/" and len(message) > 1:
-			msg, connected, inchannel = commands(stdscr, message, connected, inchannel)
+			#######################################################################################
+			# I gave this its own function because the indents were getting rediculous
+			msg, connected, inchannel, send = commands(stdscr, message, connected, inchannel, send)
+			#######################################################################################
 		elif message and message[0] == "/" and len(message) == 1:
 			output(stdscr, "Invalid command")
 		elif message and inchannel:
@@ -312,11 +337,11 @@ def user_input(stdscr):
 		elif message and not inchannel:
 			output(stdscr, "You need to be in a channel to send a message")
 			
-		if send and message:
+		if send and message and connected:
 			msg += "\r\n"
 			sockets[0].sendall(msg.encode())
-			if msg == "QUIT\r\n":
-				break
+		if msg == "QUIT\r\n":
+			break
 			
 		send = False # Reset the send flag
 		
@@ -344,8 +369,10 @@ if __name__ == "__main__":
 '''
 Features to add:
 	- Color! (colorama module?)
-	- Menus & such
+	- Menus & such (maybe)
 	- List users in the channel on the right
-	- Save configuration changes to a file
 	- Command buffer
+Known bugs:
+	- Sometimes the prompt ">" disappears
+		- It happens when the buffer scrolls without the user pressing Enter
 '''
